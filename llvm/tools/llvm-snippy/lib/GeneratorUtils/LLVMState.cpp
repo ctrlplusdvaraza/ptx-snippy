@@ -55,6 +55,11 @@ static Expected<std::string> getRISCVFeaturesFromMArch(StringRef MArch) {
   return FeatOS.str();
 }
 
+static std::string getNVPTXFeaturesFromMArch(StringRef MArch) {
+  // PTX is virtual ISA, so March does not have any features
+  return "";
+}
+
 static Expected<std::string>
 getTargetFeaturesFromMArch(Triple::ArchType ArchType, StringRef MArch) {
   assert(ArchType != Triple::ArchType::UnknownArch);
@@ -62,6 +67,9 @@ getTargetFeaturesFromMArch(Triple::ArchType ArchType, StringRef MArch) {
   case Triple::ArchType::riscv32:
   case Triple::ArchType::riscv64:
     return getRISCVFeaturesFromMArch(MArch);
+  case Triple::ArchType::nvptx:
+  case Triple::ArchType::nvptx64:
+    return getNVPTXFeaturesFromMArch(MArch);
   default:
     return makeFailure(Errc::Unimplemented,
                        "march is not implemented for this target");
@@ -137,10 +145,10 @@ Expected<LLVMState> LLVMState::create(const SelectedTargetInfo &TargetInfo) {
     snippy::warn(WarningName::MArchIsTriple,
                  "'march' with triple value is deprecated",
                  "use 'mtriple' option instead");
-
+  
+  // this initilize LLVM BACKEND TARGET. NOT SNIPPY TARGET
   std::string Error;
   const Target *Tgt = TargetRegistry::lookupTarget(TheTriple, Error);
-
   if (!Tgt)
     return makeFailure(Errc::InvalidConfiguration, Twine(Error));
 
@@ -161,7 +169,10 @@ Expected<LLVMState> LLVMState::create(const SelectedTargetInfo &TargetInfo) {
   // type of relocations be produced by linker that AsmPrinter
   // cannot do by itself on some targets.
   // E.G.: RISCV AsmPrinter cannot emit JAL directly.
-  TargetFeatures += ",+relax";
+  if (TheTriple.isRISCV()) {
+    TargetFeatures += ",+relax";
+  }
+
   const TargetOptions Options;
   auto TM = std::unique_ptr<TargetMachine>(static_cast<TargetMachine *>(
       Tgt->createTargetMachine(TheTriple, TargetInfo.CPU, TargetFeatures,

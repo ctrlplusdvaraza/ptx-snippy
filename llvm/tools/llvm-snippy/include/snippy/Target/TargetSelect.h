@@ -20,6 +20,7 @@ namespace snippy {
 // forward-declarations to minimize includes
 void InitializeRISCVSnippyTarget();
 void InitializeX86SnippyTarget();
+void InitializeNVPTXSnippyTarget();
 
 // Initializes all existing snippy targets
 inline void InitializeAllSnippyTargets() {
