@@ -11,6 +11,9 @@
 #include "snippy/Support/Error.h"
 #include "snippy/Target/Target.h"
 
+#include "llvm/MC/MCAsmBackend.h"
+#include "llvm/Support/FormattedStream.h"
+
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
@@ -29,6 +32,27 @@
 namespace llvm {
 namespace snippy {
 
+namespace {
+
+
+// Temporary MC emitter stub for NVPTX
+// NVPTX - virtual ISA, it has not built-in MC emitter
+// We remove this class later, after ptx emitter problem solution will be found
+class SnippyNVPTXStubEmitter : public MCCodeEmitter {
+public:
+  void encodeInstruction(const MCInst &Inst, SmallVectorImpl<char> &CB,
+                                 SmallVectorImpl<MCFixup> &Fixups,
+                                 const MCSubtargetInfo &STI) const override {
+    // Write 4 dummy bytes. This satisfies the MC layer's 
+    // internal offset tracking without generating real binary.
+    for (int i = 0; i < 4; ++i)
+      CB.push_back(0);
+  }
+
+  void reset() override { return; }                              
+};
+} // namespace
+  
 LLVMState::LLVMState(const SnippyTarget *SnippyTarget,
                      std::unique_ptr<TargetMachine> TargetMachine,
                      std::unique_ptr<MCContext> Context,
@@ -186,10 +210,9 @@ Expected<LLVMState> LLVMState::create(const SelectedTargetInfo &TargetInfo) {
     return makeFailure(
         Errc::InvalidConfiguration,
         llvm::formatv("No snippy target for {0}", TheTriple.normalize()));
-
+  
   const Target &T = TM->getTarget();
   const auto *STI = TM->getMCSubtargetInfo();
-
   if (auto &CPU = TargetInfo.CPU; !CPU.empty() && !STI->isCPUStringValid(CPU))
     return makeFailure(
         Errc::InvalidConfiguration,
@@ -200,11 +223,18 @@ Expected<LLVMState> LLVMState::create(const SelectedTargetInfo &TargetInfo) {
                                            TM->getMCRegisterInfo(), STI);
   auto *MCII = TM->getMCInstrInfo();
   assert(MCII);
-  auto CodeEmitter =
-      std::unique_ptr<MCCodeEmitter>(T.createMCCodeEmitter(*MCII, *MCCtx));
+          
+  std::unique_ptr<MCCodeEmitter> CodeEmitter;
+  if (TM->getTargetTriple().isNVPTX()) {
+    CodeEmitter = std::make_unique<SnippyNVPTXStubEmitter>();
+  } else {
+    // Use the standard registry for RISC-V and other targets
+    CodeEmitter = std::unique_ptr<MCCodeEmitter>(
+        T.createMCCodeEmitter(*MCII, *MCCtx));
+  }
+
   auto Disassembler =
       std::unique_ptr<MCDisassembler>(T.createMCDisassembler(*STI, *MCCtx));
-
   return LLVMState(SnippyTgt, std::move(TM), std::move(MCCtx),
                    std::move(CodeEmitter), std::move(Disassembler));
 }
@@ -250,6 +280,31 @@ MCInstPrinter &LLVMState::getInstPrinter() const {
 std::unique_ptr<MCStreamer> LLVMState::createObjStreamer(raw_pwrite_stream &OS,
                                                          MCContext &MCCtx) {
   assert(TheTargetMachine);
+
+  // --- NVPTX BYPASS ---
+  if (TheTargetMachine->getTargetTriple().isNVPTX()) {
+    // NVPTX cannot create an "Object" streamer. We force an AsmStreamer.
+    auto &T = TheTargetMachine->getTarget();
+    auto *MAI = TheTargetMachine->getMCAsmInfo();
+    auto *MII = TheTargetMachine->getMCInstrInfo();
+    auto *MRI = TheTargetMachine->getMCRegisterInfo();
+
+    std::unique_ptr<MCInstPrinter> IP(T.createMCInstPrinter(
+        TheTargetMachine->getTargetTriple(), 0, *MAI, *MII, *MRI));
+
+    auto StreamerMCE = std::make_unique<SnippyNVPTXStubEmitter>();
+    auto FOS = std::make_unique<formatted_raw_ostream>(OS);
+    std::unique_ptr<MCStreamer> S(T.createAsmStreamer(
+        MCCtx, 
+        std::move(FOS), 
+        std::move(IP), 
+        std::move(StreamerMCE), 
+        /*TAB=*/nullptr));
+
+    return S;
+  }
+  // --------------------
+
   auto MCStreamerOrErr = TheTargetMachine->createMCStreamer(
       OS, nullptr, CodeGenFileType::ObjectFile, MCCtx);
   if (!MCStreamerOrErr)
