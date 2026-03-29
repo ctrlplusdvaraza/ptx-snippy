@@ -31,7 +31,8 @@ struct GeneratorResult {
     RELOC,       // relocatable elf image
     LEGACY_EXEC, // executable with legacy header layout
     EXEC,        // executable elf image
-    DYN          // dynamic (shared object) elf image
+    DYN,         // dynamic (shared object) elf image
+    ASM          // assembly text file
   } GenType;
   std::string SnippetImage;
   std::string LinkerScript;

@@ -180,14 +180,19 @@ static SelectedTargetInfo getSelectedTargetInfo(const ProgramOptions &Opts) {
 
 static void saveToFile(const GeneratorResult &Result) {
   auto OutputFilename = getOutputFileBasename();
-  auto ElfFile = addExtensionIfRequired(OutputFilename, ".elf");
-  writeFile(ElfFile, Result.SnippetImage);
-  if (!Result.LinkerScript.empty()) {
-    auto LinkerScriptFilename = addExtensionIfRequired(OutputFilename, ".ld");
-    writeFile(LinkerScriptFilename, Result.LinkerScript);
+  if (Result.GenType == GeneratorResult::Type::ASM) {
+    auto ElfFile = addExtensionIfRequired(OutputFilename, ".asm");
+    writeFile(ElfFile, Result.SnippetImage);
+  } else {
+    auto ElfFile = addExtensionIfRequired(OutputFilename, ".elf");
+    writeFile(ElfFile, Result.SnippetImage);
+    if (!Result.LinkerScript.empty()) {
+      auto LinkerScriptFilename = addExtensionIfRequired(OutputFilename, ".ld");
+      writeFile(LinkerScriptFilename, Result.LinkerScript);
+    }
+    auto LinkerFlagsFilename = addExtensionIfRequired(OutputFilename, ".ldargs");
+    writeFile(LinkerFlagsFilename, Result.LinkerFlags);
   }
-  auto LinkerFlagsFilename = addExtensionIfRequired(OutputFilename, ".ldargs");
-  writeFile(LinkerFlagsFilename, Result.LinkerFlags);
 }
 
 // Function to place call of every "dump" method that does not need Config

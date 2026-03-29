@@ -75,6 +75,7 @@ void SnippyModule::generateObject(const PassInserter &BeforePrinter,
   PPM->add(AsmPrinter.release());
   std::invoke(AfterPrinter, *PPM);
   PPM->run(getModule());
+  PPM.reset();
   addGenResult<ObjectFile>(std::move(GeneratedObject));
 
   outs().flush(); // FIXME: this is currently needed because

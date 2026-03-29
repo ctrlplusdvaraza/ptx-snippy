@@ -53,6 +53,8 @@ struct ObjectTypeEnumOption
                     "generate executable elf");
     Mapper.enumCase(snippy::GeneratorResult::Type::DYN, "shared",
                     "generate shared object");
+    Mapper.enumCase(snippy::GeneratorResult::Type::ASM, "asm",
+                    "generate assembly text");
   }
 };
 
@@ -294,100 +296,121 @@ GeneratorResult FlowGenerator::generate(LLVMState &State,
 
   if (DumpMIR.isSpecified())
     writeMIRFile(MIR);
-  std::vector<const SnippyModule *> Modules{&MainModule};
-  bool NoRelax = DisableLinkerRelaxations;
-  auto EResult = ProgContext.generateELF(Modules, ObjectType, NoRelax);
-  if (!EResult)
-    snippy::fatal(EResult.takeError());
+                   
+  if (ObjectType == GeneratorResult::Type::ASM) {
+    std::vector<const SnippyModule *> Modules{&MainModule};
+    ObjectFilesList Objects;
+    std::transform(Modules.begin(), Modules.end(), std::back_inserter(Objects),
+                    [](auto &Mapped) { return Mapped->getGeneratedObject(); });
+    if (Objects.size() > 1) snippy::fatal("ASM generation does not support several objects");
 
-  dumpVerificationIntervalsIfNeeeded(MainModule, GenCtx, BaseFileName);
-
-  if (PassCfg.ModelPluginConfig.runOnModel()) {
-    auto GenType = ObjectType == GeneratorResult::Type::RELOC
-                       ? GeneratorResult::Type::LEGACY_EXEC
-                       : ObjectType;
-    auto ESnippetImageForModelExecution =
-        ProgContext.generateELF(Modules, GenType, NoRelax);
-    if (!ESnippetImageForModelExecution)
-      snippy::fatal(ESnippetImageForModelExecution.takeError());
-
-    // We should report to the user linker flags from execution on model.
-    // Not from final linking
-    EResult.get().LinkerFlags =
-        ESnippetImageForModelExecution.get().LinkerFlags;
-
-    auto RI = SimulatorContext::RunInfo{
-        ESnippetImageForModelExecution->SnippetImage, ProgContext, MainModule,
-        PassCfg.ProgramCfg->EntryPointName,
-        PassCfg.RegistersConfig.InitialStateOutputYaml,
-        PassCfg.RegistersConfig.FinalStateOutputYaml, SelfcheckMem,
-        // Memory reset only needed if interpreter may have executed
-        // during generation process.
-        /* NeedMemoryReset */ Cfg.hasTrackingMode(),
-        std::vector<std::string>(DumpMemorySection.begin(),
-                                 DumpMemorySection.end()),
-        MemorySectionFile.getValue(), BaseFileName};
-
-    auto &SimCtx = MainModule.getGenResult<OwningSimulatorContext>();
-
-    // TODO: move this all to some more simulator-related place
-    auto &I = SimCtx.getInterpreter();
-    std::unique_ptr<RVMCallbackHandler::ObserverHandle<SelfcheckObserver>>
-        SelfcheckObserverHandle;
-    auto &TrackCfg = Cfg.getTrackCfg();
-    if (TrackCfg.Selfcheck &&
-        (TrackCfg.Selfcheck->isMemoryBasedSelfcheckModeEnabled())) {
-      auto &Map = MainModule.getOrAddResult<SelfcheckMap>().Map;
-      // TODO: merge all infos from all modules.
-      SelfcheckObserverHandle =
-          I.setObserver<SelfcheckObserver>(Map.begin(), Map.end(), I.getPC());
+    std::string SnippetImage = "";
+    for (const auto &Obj : Objects) {
+        SnippetImage += Obj.str(); 
     }
 
-    auto &TFCfg = PassCfg.TFOpts;
-    std::unique_ptr<RVMCallbackHandler::ObserverHandle<RISCVTraceObserver>>
-        RISCVTraceObserverHandle;
-    auto XLen = State.getSnippyTarget().getAddrRegLen(State.getTargetMachine());
-    RISCVTraceObserver TraceObserver;
-    if (TFCfg.TraceSNTFPath)
-      TraceObserver.Converters.push_back(std::make_unique<RISCVConverterSNTF>(
-          XLen, *ProgContext.getLinker().getStartPC(), TFCfg.LastPC, I,
-          TFCfg.TraceSNTFPath.value()));
-    if (TFCfg.TraceSNTFPath)
-      RISCVTraceObserverHandle =
-          I.setObserver<RISCVTraceObserver>(std::move(TraceObserver));
-
-    if (auto Err = SimCtx.runSimulator(RI))
-      snippy::fatal(GenCtx.getProgramContext().getLLVMState().getCtx(),
-                    "Error during the simulation run", std::move(Err));
-
-    if (TrackCfg.Selfcheck &&
-        (TrackCfg.Selfcheck->isMemoryBasedSelfcheckModeEnabled())) {
-      if (SelfcheckMem)
-        checkMemStateAfterSelfcheck(ProgContext, TrackCfg, I);
-
-      auto AnnotationFilename =
-          addExtensionIfRequired(BaseFileName, ".selfcheck.yaml");
-      I.getObserverByHandle(*SelfcheckObserverHandle)
-          .dumpAsYaml(AnnotationFilename);
-    }
-    // Informing that the end of the trace has been reached.
-    if (TFCfg.TraceSNTFPath)
-      I.getObserverByHandle(*RISCVTraceObserverHandle)
-          .PCUpdateNotification(TFCfg.LastPC);
-
+    GeneratorResult AsmResult = 
+    {
+      /*.GenType=*/       GeneratorResult::Type::ASM,
+      /*.SnippetImage=*/  SnippetImage,
+      /*.LinkerScript=*/  "",
+      /*.LinkerFlags=*/   ""
+    };
+    return AsmResult;
   } else {
+    std::vector<const SnippyModule *> Modules{&MainModule};
+    bool NoRelax = DisableLinkerRelaxations;
+    auto EResult = ProgContext.generateELF(Modules, ObjectType, NoRelax);
+    if (!EResult)
+      snippy::fatal(EResult.takeError());
 
-    snippy::warn(WarningName::NoModelExec, State.getCtx(),
-                 "Skipping snippet execution on the model",
-                 "model was set to 'None'.");
+    dumpVerificationIntervalsIfNeeeded(MainModule, GenCtx, BaseFileName);
+
+    if (PassCfg.ModelPluginConfig.runOnModel()) {
+      auto GenType = ObjectType == GeneratorResult::Type::RELOC
+                        ? GeneratorResult::Type::LEGACY_EXEC
+                        : ObjectType;
+      auto ESnippetImageForModelExecution =
+          ProgContext.generateELF(Modules, GenType, NoRelax);
+      if (!ESnippetImageForModelExecution)
+        snippy::fatal(ESnippetImageForModelExecution.takeError());
+
+      // We should report to the user linker flags from execution on model.
+      // Not from final linking
+      EResult.get().LinkerFlags =
+          ESnippetImageForModelExecution.get().LinkerFlags;
+
+      auto RI = SimulatorContext::RunInfo{
+          ESnippetImageForModelExecution->SnippetImage, ProgContext, MainModule,
+          PassCfg.ProgramCfg->EntryPointName,
+          PassCfg.RegistersConfig.InitialStateOutputYaml,
+          PassCfg.RegistersConfig.FinalStateOutputYaml, SelfcheckMem,
+          // Memory reset only needed if interpreter may have executed
+          // during generation process.
+          /* NeedMemoryReset */ Cfg.hasTrackingMode(),
+          std::vector<std::string>(DumpMemorySection.begin(),
+                                  DumpMemorySection.end()),
+          MemorySectionFile.getValue(), BaseFileName};
+
+      auto &SimCtx = MainModule.getGenResult<OwningSimulatorContext>();
+
+      // TODO: move this all to some more simulator-related place
+      auto &I = SimCtx.getInterpreter();
+      std::unique_ptr<RVMCallbackHandler::ObserverHandle<SelfcheckObserver>>
+          SelfcheckObserverHandle;
+      auto &TrackCfg = Cfg.getTrackCfg();
+      if (TrackCfg.Selfcheck &&
+          (TrackCfg.Selfcheck->isMemoryBasedSelfcheckModeEnabled())) {
+        auto &Map = MainModule.getOrAddResult<SelfcheckMap>().Map;
+        // TODO: merge all infos from all modules.
+        SelfcheckObserverHandle =
+            I.setObserver<SelfcheckObserver>(Map.begin(), Map.end(), I.getPC());
+      }
+
+      auto &TFCfg = PassCfg.TFOpts;
+      std::unique_ptr<RVMCallbackHandler::ObserverHandle<RISCVTraceObserver>>
+          RISCVTraceObserverHandle;
+      auto XLen = State.getSnippyTarget().getAddrRegLen(State.getTargetMachine());
+      RISCVTraceObserver TraceObserver;
+      if (TFCfg.TraceSNTFPath)
+        TraceObserver.Converters.push_back(std::make_unique<RISCVConverterSNTF>(
+            XLen, *ProgContext.getLinker().getStartPC(), TFCfg.LastPC, I,
+            TFCfg.TraceSNTFPath.value()));
+      if (TFCfg.TraceSNTFPath)
+        RISCVTraceObserverHandle =
+            I.setObserver<RISCVTraceObserver>(std::move(TraceObserver));
+
+      if (auto Err = SimCtx.runSimulator(RI))
+        snippy::fatal(GenCtx.getProgramContext().getLLVMState().getCtx(),
+                      "Error during the simulation run", std::move(Err));
+
+      if (TrackCfg.Selfcheck &&
+          (TrackCfg.Selfcheck->isMemoryBasedSelfcheckModeEnabled())) {
+        if (SelfcheckMem)
+          checkMemStateAfterSelfcheck(ProgContext, TrackCfg, I);
+
+        auto AnnotationFilename =
+            addExtensionIfRequired(BaseFileName, ".selfcheck.yaml");
+        I.getObserverByHandle(*SelfcheckObserverHandle)
+            .dumpAsYaml(AnnotationFilename);
+      }
+      // Informing that the end of the trace has been reached.
+      if (TFCfg.TraceSNTFPath)
+        I.getObserverByHandle(*RISCVTraceObserverHandle)
+            .PCUpdateNotification(TFCfg.LastPC);
+
+    } else {
+      snippy::warn(WarningName::NoModelExec, State.getCtx(),
+                  "Skipping snippet execution on the model",
+                  "model was set to 'None'.");
+    }
+    if (EResult->GenType == GeneratorResult::Type::RELOC)
+      snippy::notice(
+          WarningName::RelocatableGenerated, State.getCtx(),
+          "Snippet generator generated relocatable image",
+          "please, use linker with provided script to generate final image");
+    return *EResult;
   }
-  if (EResult->GenType == GeneratorResult::Type::RELOC)
-    snippy::notice(
-        WarningName::RelocatableGenerated, State.getCtx(),
-        "Snippet generator generated relocatable image",
-        "please, use linker with provided script to generate final image");
-
-  return *EResult;
 }
 
 } // namespace snippy
