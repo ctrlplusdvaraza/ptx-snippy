@@ -227,8 +227,7 @@ public:
   getRegClass(const InstructionGenerationContext &IGC,
               unsigned OperandRegClassID, unsigned OpIndex, unsigned Opcode,
               const MCRegisterInfo &RegInfo) const override {
-    llvm::outs() << "[DEBUG] getRegClass\n";
-    reportUnimplementedError();
+    return RegInfo.getRegClass(OperandRegClassID);
   }
 
   const MCRegisterClass &
@@ -437,7 +436,8 @@ public:
   bool isPhysRegClass(unsigned RegClassID,
                       const MCRegisterInfo &RI) const override {
     llvm::outs() << "[DEBUG] isPhysRegClass\n";
-    reportUnimplementedError();
+    return false;
+    // reportUnimplementedError();
   }
 
   Register getFirstPhysReg(Register Reg,
@@ -450,7 +450,16 @@ public:
   getSubregsInclusive(Register Reg, const MCRegisterInfo &RI,
                       SmallVectorImpl<Register> &OutPhysRegs) const override {
     llvm::outs() << "[DEBUG] getSubregsInclusive\n";
-    reportUnimplementedError();
+    
+    OutPhysRegs.push_back(Reg);
+
+    for (MCSubRegIterator SubRegs(Reg, &RI); SubRegs.isValid(); ++SubRegs) {
+      Register S = *SubRegs;
+      if (!is_contained(OutPhysRegs, S))
+        OutPhysRegs.push_back(S);
+    }
+
+    // reportUnimplementedError();
   }
 
   void
@@ -769,20 +778,36 @@ public:
                                               const MCInstrDesc &InstrDesc,
                                               unsigned Operand) const override {
     llvm::outs() << "[DEBUG] excludeRegsForOperand\n";
-    reportUnimplementedError();
+    std::vector<Register> Excluded;
+    return Excluded;
+    // reportUnimplementedError();
   }
 
   std::vector<Register> includeRegs(unsigned Opcode,
                                     const MCRegisterClass &RC) const override {
     llvm::outs() << "[DEBUG] includeRegs\n";
-    reportUnimplementedError();
+    
+    // B1RegClassID = 0,
+    // B16RegClassID = 1,
+    // SpecialRegsRegClassID = 2,
+    // B32RegClassID = 3,
+    // B32_and_SpecialRegsRegClassID = 4,
+    // B64RegClassID = 5,
+    // B128RegClassID = 6,
+    std::vector<Register> include;
+    for (auto Reg : RC) {
+        include.push_back(Reg); 
+    }
+    return include;
+
+    // reportUnimplementedError();
   }
 
   void reserveRegsIfNeeded(InstructionGenerationContext &IGC, unsigned Opcode,
                            bool isDst, bool isMem,
                            Register Reg) const override {
     llvm::outs() << "[DEBUG] reserveRegsIfNeeded\n";
-    reportUnimplementedError();
+    // reportUnimplementedError();
   }
 
   const TargetRegisterClass &getAddrRegClass() const override {
