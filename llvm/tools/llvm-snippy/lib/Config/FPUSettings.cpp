@@ -358,14 +358,12 @@ std::string yaml::MappingTraits<FloatOverwriteSettings>::validate(
           return checkIntegralRangeOverflow(*Cfg.IntegralRange, RM, *Semantics);
         });
 
-    if (auto ErrIt = find_if_not(CheckedIntegralOverflowRange,
-                                 [](Error Err) {
-                                   auto Success = Err.success();
-                                   consumeError(std::move(Err));
-                                   return Success;
-                                 });
-        ErrIt != CheckedIntegralOverflowRange.end())
-      return toString(*ErrIt);
+    for (auto It = CheckedIntegralOverflowRange.begin(), E = CheckedIntegralOverflowRange.end(); It != E; ++It) {
+      Error e = *It; 
+      if (!e)
+        continue;
+      return toString(std::move(e)); 
+    }
   }
 
   {
