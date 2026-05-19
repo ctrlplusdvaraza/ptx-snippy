@@ -1,5 +1,5 @@
-#ifndef LLVM_TOOLS_SNIPPY_LIB_RISCV_GEN_CONTEXT_H
-#define LLVM_TOOLS_SNIPPY_LIB_RISCV_GEN_CONTEXT_H
+#ifndef LLVM_TOOLS_SNIPPY_LIB_NVPTX_GEN_CONTEXT_H
+#define LLVM_TOOLS_SNIPPY_LIB_NVPTX_GEN_CONTEXT_H
 
 //===-- TargetGenContext.h --------------------------------------*- C++ -*-===//
 //
@@ -33,4 +33,4 @@ public:
 } // namespace snippy
 } // namespace llvm
 
-#endif // LLVM_TOOLS_SNIPPY_LIB_RISCV_GEN_CONTEXT_H
+#endif // LLVM_TOOLS_SNIPPY_LIB_NVPTX_GEN_CONTEXT_H

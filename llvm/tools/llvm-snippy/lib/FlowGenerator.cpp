@@ -301,7 +301,7 @@ GeneratorResult FlowGenerator::generate(LLVMState &State,
     std::vector<const SnippyModule *> Modules{&MainModule};
     ObjectFilesList Objects;
     std::transform(Modules.begin(), Modules.end(), std::back_inserter(Objects),
-                    [](auto &Mapped) { return Mapped->getGeneratedObject(); });
+                    [](auto &Mapped) { return Mapped->getGeneratedObject(); }); 
     if (Objects.size() > 1) snippy::fatal("ASM generation does not support several objects");
 
     std::string SnippetImage = "";

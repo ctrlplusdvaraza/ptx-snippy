@@ -1475,6 +1475,55 @@ void NVPTXAsmPrinter::setAndEmitFunctionVirtualRegisters(
     }
   }
 
+
+
+  // // Physical registers mapping stub
+  // BitVector ReservedRegs = TRI->getReservedRegs(MF);
+  // unsigned NumPhysRegs = TRI->getNumRegs();
+  // typedef DenseMap<unsigned, unsigned> PhysRegMap;
+  // typedef DenseMap<const TargetRegisterClass *, PhysRegMap> PhysRegRCMap;
+  // PhysRegRCMap PhysRegMapping;
+
+  // for (unsigned physReg = 1; physReg <= NumPhysRegs; physReg++) {
+  //   MCRegister Reg(physReg);
+
+  //     // Skip registers that aren't used
+
+  //   if (!Reg.isPhysical())
+  //     continue;
+    
+  //   if (!MRI->isPhysRegUsed(Reg))
+  //       continue;
+      
+  //   // if (ReservedRegs.test(Reg))
+  //   //   continue;
+    
+  //   // // Check if register is allocatable (has a register class)
+  //   // if (!TRI->isInAllocatableClass(Reg))
+  //   //     continue;
+      
+  //   // Try to get register class - skip if none exists
+  //   const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
+  //   if (!RC)
+  //       continue;
+    
+  //     DenseMap<unsigned, unsigned> &regmap = PhysRegMapping[RC];
+  //     int n = regmap.size();
+  //     regmap.insert(std::make_pair(physReg, n + 1));
+  // }
+
+  // for (const TargetRegisterClass *RC : TRI->regclasses()) {
+  //   const unsigned N = PhysRegMapping[RC].size();
+  //   if (N) {
+  //     unsigned BitSize = TRI->getRegSizeInBits(*RC);
+  //     const StringRef RCName = getNVPTXRegClassName(RC);
+  //     const StringRef RCStr = getNVPTXRegClassStr(RC);
+  //     O << "\t.reg " << ".b" << BitSize << " " << RCName << "<" << (N + 1) << ">;\n";
+  //   }
+  // }
+
+
+
   // Go through all virtual registers to establish the mapping between the
   // global virtual
   // register number and the per class virtual register number.

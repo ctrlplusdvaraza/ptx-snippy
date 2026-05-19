@@ -8,7 +8,6 @@
 
 #include "snippy/Generator/RegisterGenerator.h"
 #include "snippy/Generator/GeneratorContext.h"
-
 #include <string>
 
 namespace llvm {

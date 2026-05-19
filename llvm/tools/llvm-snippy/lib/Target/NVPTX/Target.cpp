@@ -7,9 +7,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "snippy/Target/Target.h"
+#include "snippy/Generator/GeneratorContext.h"
+#include "snippy/Generator/Policy.h"
+
 #include "TargetConfig.h"
 #include "llvm/MC/TargetRegistry.h"
-
 
 #include "TargetGenContext.h"
 
@@ -20,13 +22,14 @@
 // #include "X86InstrInfo.h"
 
 #include "MCTargetDesc/NVPTXMCTargetDesc.h"
+#include "TargetConfig.h"
 
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Target/TargetMachine.h"
 
-
+#include "RegisterState.h"
 
 #include <vector>
 
@@ -56,7 +59,9 @@ public:
   createRegisterState(const TargetGenContextInterface &TgtGenCtx,
                       const TargetSubtargetInfo &ST) const override {
     llvm::outs() << "[DEBUG] createRegisterState\n";
-    return nullptr;
+    // const auto &RST = static_cast<const RISCVSubtarget &>(ST);
+    // const auto &RGC = static_cast<const RISCVGeneratorContext &>(TgtGenCtx);
+    return std::make_unique<NVPTXRegisterState>();
     // reportUnimplementedError();
   }
 
@@ -153,9 +158,66 @@ public:
   }
 
   void generateRegsInit(InstructionGenerationContext &IGC,
-                        const IRegisterState &R) const override {
+                      const IRegisterState &R) const override {
     llvm::outs() << "[DEBUG] generateRegsInit\n";
-    reportUnimplementedError();
+                        
+  //   auto Pos = IGC.Ins;
+  //   auto &MBB = IGC.MBB;
+  //   auto &MF = *MBB.getParent();
+  //   auto &MRI = MF.getRegInfo();
+
+  //   const auto &STI = MF.getSubtarget();
+  //   const auto &TII = *STI.getInstrInfo();
+  //   const auto &TRI = *STI.getRegisterInfo();
+    
+  //   const auto &NR = static_cast<const NVPTXRegisterState &>(R);
+
+  //   // unsigned NumRegs = MRI.getNumVirtRegs();
+  //   unsigned NumRegs = 10;
+  //   for (unsigned i = 0; i < NumRegs; ++i) {
+  //     // Register VReg = Register::index2VirtReg(i);
+
+  //     // const TargetRegisterClass *RC = MRI.getRegClass(VReg);
+  //     NVPTX::B64RegClassID
+
+  //     Register NewVReg = MRI.createVirtualRegister();
+      
+  //     llvm::outs() << "Created " << NewVReg << " based on " << VReg << "\n";
+  // }
+
+
+
+ 
+    // for (const auto &[RegId, Value] : NR.Regs) {
+
+    //   // 1. Get the register class for the physical register ID
+    //   const TargetRegisterClass *RC = MRI.getRegClass(RegId);
+    //   if (!RC) continue;
+    
+    //   // 2. Select PTX Opcode
+    //   // unsigned Opcode = (RC->hasSuperClassEq(NVPTX::B64RegClassID)) 
+    //   //                   ? NVPTX::MOV_i64 
+    //   //                   : NVPTX::MOV_i32;
+
+    //   // 3. Create Virtual Register to trigger .reg printing in AsmPrinter
+    //   Register VReg = MRI.createVirtualRegister(RC);
+
+    //   // // 4. Build the instruction at the current insertion point
+    //   // getSupportInstBuilder(*this, MBB, Pos,
+    //   //                       MBB.getParent()->getFunction().getContext(),
+    //   //                       InstrInfo.get(ADDIOp))
+    //   //     .addReg(CounterReg, RegState::Define)
+    //   //     .addReg(CounterReg)
+    //   //     .addImm(-CounterInitInfo.StrideVal.getSExtValue());
+
+    //   // BuildMI(MBB, IGC.getInsertPt(), DL, TII.get(Opcode), VReg)
+    //   //     .addImm(Value);
+          
+    //   // // 5. Link the virtual register to the physical register Snippy uses
+    //   // BuildMI(MBB, IGC.getInsertPt(), DL, TII.get(TargetOpcode::COPY), PhysRegID)
+    //   //     .addReg(VReg);
+    // }
+    // reportUnimplementedError();
   }
 
   unsigned getFPRegsCount(const TargetSubtargetInfo &ST) const override {
@@ -908,11 +970,9 @@ public:
     llvm::outs() << "[DEBUG] createAsmPrinter\n";
     const Target &T = TM.getTarget();
   
-    // This looks up the built-in NVPTXAsmPrinter in the global registry
     auto *AP = T.createAsmPrinter(TM, std::move(Streamer));
     
     if (!AP) {
-      // If it returns null, the NVPTX AsmPrinter wasn't initialized
       snippy::fatal("Error: Built-in NVPTX AsmPrinter not found. "
                     "Did you call LLVMInitializeNVPTXAsmPrinter()?");
     }

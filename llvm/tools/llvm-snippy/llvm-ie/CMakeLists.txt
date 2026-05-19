@@ -12,13 +12,16 @@ add_llvm_tool(llvm-ie
   main.cpp
 )
 
-set(LLVM_INSTRUCTION_ENUMERATOR_PLUGINS)
+set(LLVM_INSTRUCTION_ENUMERATOR_RISCV_PLUGINS)
 foreach(t ${LLVM_INSTRUCTION_ENUMERATOR_TARGETS})
   string(STRIP ${t} t)
-  list(APPEND LLVM_INSTRUCTION_ENUMERATOR_PLUGINS "LLVMInstructionEnumerator${t}")
+  list(APPEND LLVM_INSTRUCTION_ENUMERATOR_RISCV_PLUGINS "LLVMInstructionEnumeratorRISCV${t}")
 endforeach()
 
 target_link_libraries(llvm-ie PRIVATE
+  -Wl,--start-group
+  LLVMInstructionEnumeratorRISCV
   LLVMInstructionEnumerator
   ${LLVM_INSTRUCTION_ENUMERATOR_PLUGINS}
-  )
+  -Wl,--end-group
+)

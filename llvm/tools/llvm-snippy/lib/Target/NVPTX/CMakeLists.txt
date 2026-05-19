@@ -3,6 +3,11 @@ include_directories(
   ${LLVM_BINARY_DIR}/lib/Target/NVPTX
 )
 
+set(LLVM_TARGET_DEFINITIONS ${PROJECT_SOURCE_DIR}/lib/Target/NVPTX/NVPTX.td)
+tablegen(SNIPPY NVPTXGenerated.inc -gen-riscv -I ${PROJECT_SOURCE_DIR}/lib/Target/NVPTX/)
+add_public_tablegen_target(SnippyNVPTXTableGen)
+
+
 set(LLVM_LINK_COMPONENTS
   NVPTX
   Core
@@ -14,10 +19,18 @@ add_llvm_library(LLVMSnippyNVPTX
   STATIC
   Target.cpp
 
-  # DEPENDS
-  # intrinsics_gen
-  # X86CommonTableGen
+  DEPENDS
+    NVPTXCommonTableGen
+    SnippyNVPTXTableGen
   )
 
-# target_link_libraries(LLVMSnippyNVPTX PRIVATE
-#   LLVMSnippyConfig LLVMSnippySupport LLVMSnippyTarget)
+target_link_libraries(
+  LLVMSnippyNVPTX
+  PRIVATE LLVMSnippyConfig LLVMSnippySupport LLVMSnippyTarget
+  PUBLIC SnippyHeaders
+  )
+
+target_include_directories(LLVMSnippyRISCV
+  PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
+  )
+

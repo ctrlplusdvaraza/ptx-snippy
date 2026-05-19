@@ -1,3 +1,6 @@
+#ifndef LLVM_TOOLS_SNIPPY_LIB_NVPTX_CONTEXT_H
+#define LLVM_TOOLS_SNIPPY_LIB_NVPTX_CONTEXT_H
+
 #include "snippy/Target/Target.h"
 #include "llvm/Support/YAMLTraits.h"
 
@@ -23,3 +26,6 @@ struct PTXSelfcheckTargetConfig final : public SelfcheckTargetConfigInterface {
 
 
 } // namespace llvm::snippy
+
+
+#endif // LLVM_TOOLS_SNIPPY_LIB_NVPTX_GEN_CONTEXT_H
