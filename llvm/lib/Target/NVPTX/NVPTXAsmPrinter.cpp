@@ -1501,6 +1501,68 @@ void NVPTXAsmPrinter::setAndEmitFunctionVirtualRegisters(
     }
   }
 
+  unsigned MaxPhysPred = 0;
+  unsigned MaxPhysB16 = 0;
+  unsigned MaxPhysB32 = 0;
+  unsigned MaxPhysB64 = 0;
+  unsigned MaxPhysB128 = 0;
+  bool HasPhysPred = false;
+  bool HasPhysB16 = false;
+  bool HasPhysB32 = false;
+  bool HasPhysB64 = false;
+  bool HasPhysB128 = false;
+
+  auto IsSystemReg = [](Register Reg) {
+    switch (Reg.id()) {
+    case NVPTX::VRFrame32:
+    case NVPTX::VRFrame64:
+    case NVPTX::VRFrameLocal32:
+    case NVPTX::VRFrameLocal64:
+    case NVPTX::VRDepot:
+      return true;
+    default:
+      return Reg.id() >= NVPTX::ENVREG0 && Reg.id() <= NVPTX::ENVREG31;
+    }
+  };
+
+  auto UpdatePhysRegMax = [&](Register Reg) {
+    if (IsSystemReg(Reg))
+      return;
+
+    auto UpdateMax = [&](bool &HasClass, unsigned &MaxValue, unsigned Base) {
+      HasClass = true;
+      MaxValue = std::max(MaxValue, Reg.id() - Base);
+    };
+
+    if (NVPTX::B1RegClass.contains(Reg))
+      UpdateMax(HasPhysPred, MaxPhysPred, NVPTX::P0);
+    else if (NVPTX::B16RegClass.contains(Reg))
+      UpdateMax(HasPhysB16, MaxPhysB16, NVPTX::RS0);
+    else if (NVPTX::B32RegClass.contains(Reg))
+      UpdateMax(HasPhysB32, MaxPhysB32, NVPTX::R0);
+    else if (NVPTX::B64RegClass.contains(Reg))
+      UpdateMax(HasPhysB64, MaxPhysB64, NVPTX::RL0);
+    else if (NVPTX::B128RegClass.contains(Reg))
+      UpdateMax(HasPhysB128, MaxPhysB128, NVPTX::RQ0);
+  };
+
+  for (const MachineBasicBlock &MBB : MF)
+    for (const MachineInstr &MI : MBB)
+      for (const MachineOperand &MO : MI.operands())
+        if (MO.isReg() && MO.getReg().isPhysical())
+          UpdatePhysRegMax(MO.getReg());
+
+  if (HasPhysPred)
+    O << "\t.reg .pred \t%p<" << (MaxPhysPred + 1) << ">;\n";
+  if (HasPhysB16)
+    O << "\t.reg .b16 \t%rs<" << (MaxPhysB16 + 1) << ">;\n";
+  if (HasPhysB32)
+    O << "\t.reg .b32 \t%r<" << (MaxPhysB32 + 1) << ">;\n";
+  if (HasPhysB64)
+    O << "\t.reg .b64 \t%rd<" << (MaxPhysB64 + 1) << ">;\n";
+  if (HasPhysB128)
+    O << "\t.reg .b128 \t%rq<" << (MaxPhysB128 + 1) << ">;\n";
+
   OutStreamer->emitRawText(O.str());
 }
 
