@@ -13,16 +13,11 @@
 
 #include "TargetGenContext.h"
 
-// #include "snippy/Config/Selfcheck.h"
-// #include "snippy/Simulator/Targets/X86.h"
-// #include "MCTargetDesc/X86BaseInfo.h"
-// #include "MCTargetDesc/X86MCTargetDesc.h"
-// #include "X86InstrInfo.h"
-
 #include "MCTargetDesc/NVPTXMCTargetDesc.h"
 
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/IR/Function.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Target/TargetMachine.h"
 
@@ -86,6 +81,14 @@ public:
     llvm::outs() << "[DEBUG] createTargetConfig\n";
     return std::make_unique<PTXConfigInterface>();
     // reportUnimplementedError();
+  }
+
+  void setupGeneratedFunction(Function &F, StringRef EntryPointName,
+                              StringRef OriginalName,
+                              Function::LinkageTypes Linkage) const override {
+    if (OriginalName == EntryPointName &&
+        Linkage == Function::ExternalLinkage)
+      F.setCallingConv(CallingConv::PTX_Kernel);
   }
 
   void

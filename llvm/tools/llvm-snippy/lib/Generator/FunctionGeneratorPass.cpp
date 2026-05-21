@@ -202,9 +202,11 @@ MachineFunction &FunctionGenerator::createFunction(
       SectionName.empty() || Linkage != Function::InternalLinkage
           ? std::string(Name)
           : (Twine(SectionName) + "." + Name).str();
+  auto &F = State.createFunction(M, FinalName, SectionName, Linkage);
+  State.getSnippyTarget().setupGeneratedFunction(
+      F, ProgCtx.getEntryPointName(), Name, Linkage);
   auto &MF = State.createMachineFunctionFor(
-      State.createFunction(M, FinalName, SectionName, Linkage),
-      SnippyModule::fromModule(M).getMMI());
+      F, SnippyModule::fromModule(M).getMMI());
   auto *MBB = createMachineBasicBlock(MF);
   assert(MBB);
   MF.push_back(MBB);

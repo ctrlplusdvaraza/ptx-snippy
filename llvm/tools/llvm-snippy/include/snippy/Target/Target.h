@@ -49,6 +49,7 @@ namespace llvm {
 
 class AsmPrinter;
 class MCCodeEmitter;
+class Function;
 
 namespace sys {
 class DynamicLibrary;
@@ -140,6 +141,11 @@ public:
                       const RegPoolWrapper &RP) const = 0;
 
   virtual std::unique_ptr<TargetConfigInterface> createTargetConfig() const = 0;
+
+  virtual void
+  setupGeneratedFunction(Function &F, StringRef EntryPointName,
+                         StringRef OriginalName,
+                         Function::LinkageTypes Linkage) const {}
 
   virtual std::unique_ptr<SimulatorInterface>
   createSimulator(llvm::snippy::DynamicLibrary &ModelLib,
