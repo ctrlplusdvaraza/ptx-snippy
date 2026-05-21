@@ -202,7 +202,10 @@ MachineFunction &FunctionGenerator::createFunction(
       SectionName.empty() || Linkage != Function::InternalLinkage
           ? std::string(Name)
           : (Twine(SectionName) + "." + Name).str();
-  auto &F = State.createFunction(M, FinalName, SectionName, Linkage);
+  auto *FT = State.getSnippyTarget().getGeneratedFunctionType(
+      State.getCtx(), ProgCtx.getEntryPointName(), Name, Linkage);
+  auto &F = State.createFunction(M, FinalName, SectionName, Linkage, FT,
+                                 State.getCtx());
   State.getSnippyTarget().setupGeneratedFunction(
       F, ProgCtx.getEntryPointName(), Name, Linkage);
   auto &MF = State.createMachineFunctionFor(

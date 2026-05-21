@@ -8,6 +8,7 @@
 #include "snippy/Target/Target.h"
 
 #include "llvm/ADT/Twine.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/Support/Error.h"
 
 namespace llvm {
@@ -41,6 +42,13 @@ void SnippyTarget::generateSpillToAddr(InstructionGenerationContext &IGC,
   storeRegToAddr(IGC, Addr, Reg,
                  /* store the whole register */ 0);
 }
+
+FunctionType *SnippyTarget::getGeneratedFunctionType(
+    LLVMContext &Ctx, StringRef EntryPointName, StringRef OriginalName,
+    Function::LinkageTypes Linkage) const {
+  return FunctionType::get(Type::getVoidTy(Ctx), false);
+}
+
 void SnippyTarget::generateReloadFromAddr(InstructionGenerationContext &IGC,
                                           MCRegister Reg, MemAddr Addr,
                                           SnippyMetadata MetadataMark) const {

@@ -7,6 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "snippy/Target/Target.h"
+#include "snippy/Generator/GenerationUtils.h"
+#include "snippy/Generator/Policy.h"
+#include "RegisterState.h"
 #include "TargetConfig.h"
 #include "llvm/MC/TargetRegistry.h"
 
@@ -15,8 +18,10 @@
 
 #include "MCTargetDesc/NVPTXMCTargetDesc.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Target/TargetMachine.h"
@@ -43,7 +48,171 @@ static bool isSystemReg(Register Reg) {
   }
 }
 
+constexpr unsigned NotAtomic = 0;
+constexpr unsigned ThreadScope = 0;
+constexpr unsigned GlobalAS = 1;
+constexpr unsigned UntypedLdSt = 3;
+constexpr unsigned PerThreadRDBytes = 5 * 8;
+
+static ArrayRef<Register> getRDRegs() {
+  static const Register RDRegs[] = {NVPTX::RL0, NVPTX::RL1, NVPTX::RL2,
+                                    NVPTX::RL3, NVPTX::RL4};
+  return RDRegs;
+}
+
+static bool isInRegClass(const MCRegisterInfo &RI, unsigned RCID,
+                         Register Reg) {
+  return RI.getRegClass(RCID).contains(Reg);
+}
+
 class SnippyNVPTXTarget : public SnippyTarget {
+  static std::string getKernelParamName(const Function &F, unsigned ParamIdx) {
+    return (Twine(F.getName()) + "_param_" + Twine(ParamIdx)).str();
+  }
+
+  static const char *createExternalSymbolName(MachineFunction &MF,
+                                              StringRef Name) {
+    return MF.createExternalSymbolName(Name);
+  }
+
+  Register getPointerScratchReg() const { return NVPTX::VRFrame64; }
+  Register getOffsetScratchReg() const { return NVPTX::VRFrameLocal64; }
+
+  void readSpecialReg(InstructionGenerationContext &IGC, unsigned Opcode,
+                      Register DstReg) const {
+    auto &State = IGC.ProgCtx.getLLVMState();
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, State.getCtx(),
+                          State.getInstrInfo().get(Opcode), DstReg);
+  }
+
+  void loadKernelParam(InstructionGenerationContext &IGC, unsigned ParamIdx,
+                       Register DstReg) const {
+    auto &State = IGC.ProgCtx.getLLVMState();
+    auto &MF = *IGC.MBB.getParent();
+    auto ParamName = getKernelParamName(MF.getFunction(), ParamIdx);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, State.getCtx(),
+                          State.getInstrInfo().get(NVPTX::MOV64_PARAM), DstReg)
+        .addExternalSymbol(createExternalSymbolName(MF, ParamName));
+  }
+
+  void emitLoadI64(InstructionGenerationContext &IGC, Register DstReg,
+                   Register BaseReg, uint32_t Offset) const {
+    auto &State = IGC.ProgCtx.getLLVMState();
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, State.getCtx(),
+                          State.getInstrInfo().get(NVPTX::LD_i64), DstReg)
+        .addImm(NotAtomic)
+        .addImm(ThreadScope)
+        .addImm(GlobalAS)
+        .addImm(UntypedLdSt)
+        .addImm(64)
+        .addReg(BaseReg)
+        .addImm(Offset);
+  }
+
+  void emitStoreI64(InstructionGenerationContext &IGC, Register SrcReg,
+                    Register BaseReg, uint32_t Offset) const {
+    auto &State = IGC.ProgCtx.getLLVMState();
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, State.getCtx(),
+                          State.getInstrInfo().get(NVPTX::ST_i64))
+        .addReg(SrcReg)
+        .addImm(NotAtomic)
+        .addImm(ThreadScope)
+        .addImm(GlobalAS)
+        .addImm(64)
+        .addReg(BaseReg)
+        .addImm(Offset);
+  }
+
+  void computeThreadBase(InstructionGenerationContext &IGC,
+                         unsigned ParamIdx) const {
+    auto &State = IGC.ProgCtx.getLLVMState();
+    const auto &II = State.getInstrInfo();
+    auto &Ctx = State.getCtx();
+    constexpr Register ThreadLinear = NVPTX::R0;
+    constexpr Register BlockLinear = NVPTX::R1;
+    constexpr Register ThreadsPerBlock = NVPTX::R2;
+    constexpr Register Tmp32 = NVPTX::R3;
+    constexpr Register Tmp32B = NVPTX::R4;
+    auto PtrReg = getPointerScratchReg();
+    auto OffsetReg = getOffsetScratchReg();
+
+    loadKernelParam(IGC, ParamIdx, PtrReg);
+
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_TID_y, ThreadLinear);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_NTID_y, Tmp32);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_TID_z, Tmp32B);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::MULTi32rr), Tmp32)
+        .addReg(Tmp32)
+        .addReg(Tmp32B);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::ADDi32rr), ThreadLinear)
+        .addReg(ThreadLinear)
+        .addReg(Tmp32);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_NTID_x, Tmp32);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::MULTi32rr), ThreadLinear)
+        .addReg(Tmp32)
+        .addReg(ThreadLinear);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_TID_x, Tmp32);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::ADDi32rr), ThreadLinear)
+        .addReg(ThreadLinear)
+        .addReg(Tmp32);
+
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_CTAID_y, BlockLinear);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_NCTAID_y, Tmp32);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_CTAID_z, Tmp32B);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::MULTi32rr), Tmp32)
+        .addReg(Tmp32)
+        .addReg(Tmp32B);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::ADDi32rr), BlockLinear)
+        .addReg(BlockLinear)
+        .addReg(Tmp32);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_NCTAID_x, Tmp32);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::MULTi32rr), BlockLinear)
+        .addReg(Tmp32)
+        .addReg(BlockLinear);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_CTAID_x, Tmp32);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::ADDi32rr), BlockLinear)
+        .addReg(BlockLinear)
+        .addReg(Tmp32);
+
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_NTID_y, ThreadsPerBlock);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_NTID_z, Tmp32);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::MULTi32rr), ThreadsPerBlock)
+        .addReg(ThreadsPerBlock)
+        .addReg(Tmp32);
+    readSpecialReg(IGC, NVPTX::INT_PTX_SREG_NTID_x, Tmp32);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::MULTi32rr), ThreadsPerBlock)
+        .addReg(Tmp32)
+        .addReg(ThreadsPerBlock);
+
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::MULTi32rr), BlockLinear)
+        .addReg(BlockLinear)
+        .addReg(ThreadsPerBlock);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::ADDi32rr), BlockLinear)
+        .addReg(BlockLinear)
+        .addReg(ThreadLinear);
+
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::MULWIDEU64Imm), OffsetReg)
+        .addReg(BlockLinear)
+        .addImm(PerThreadRDBytes);
+    getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, Ctx,
+                          II.get(NVPTX::ADDi64rr), PtrReg)
+        .addReg(PtrReg)
+        .addReg(OffsetReg);
+  }
+
 public:
   SnippyNVPTXTarget() = default;
 
@@ -63,9 +232,7 @@ public:
   std::unique_ptr<IRegisterState>
   createRegisterState(const TargetGenContextInterface &TgtGenCtx,
                       const TargetSubtargetInfo &ST) const override {
-    llvm::outs() << "[DEBUG] createRegisterState\n";
-    return nullptr;
-    // reportUnimplementedError();
+    return std::make_unique<NVPTXRegisterState>();
   }
 
   std::unique_ptr<TargetGenContextInterface>
@@ -89,6 +256,19 @@ public:
     if (OriginalName == EntryPointName &&
         Linkage == Function::ExternalLinkage)
       F.setCallingConv(CallingConv::PTX_Kernel);
+  }
+
+  FunctionType *
+  getGeneratedFunctionType(LLVMContext &Ctx, StringRef EntryPointName,
+                           StringRef OriginalName,
+                           Function::LinkageTypes Linkage) const override {
+    if (OriginalName == EntryPointName &&
+        Linkage == Function::ExternalLinkage) {
+      auto *PtrTy = PointerType::get(Ctx, 0);
+      return FunctionType::get(Type::getVoidTy(Ctx), {PtrTy, PtrTy}, false);
+    }
+    return SnippyTarget::getGeneratedFunctionType(Ctx, EntryPointName,
+                                                  OriginalName, Linkage);
   }
 
   void
@@ -170,8 +350,19 @@ public:
 
   void generateRegsInit(InstructionGenerationContext &IGC,
                         const IRegisterState &R) const override {
-    llvm::outs() << "[DEBUG] generateRegsInit\n";
-    reportUnimplementedError();
+    computeThreadBase(IGC, /* in_ptr */ 0);
+    auto PtrReg = getPointerScratchReg();
+    for (auto [Index, Reg] : enumerate(getRDRegs()))
+      emitLoadI64(IGC, Reg, PtrReg, Index * 8);
+  }
+
+  bool regsInitNeedsDedicatedBlock() const override { return false; }
+
+  void generateFinalRegDump(InstructionGenerationContext &IGC) const override {
+    computeThreadBase(IGC, /* out_ptr */ 1);
+    auto PtrReg = getPointerScratchReg();
+    for (auto [Index, Reg] : enumerate(getRDRegs()))
+      emitStoreI64(IGC, Reg, PtrReg, Index * 8);
   }
 
   unsigned getFPRegsCount(const TargetSubtargetInfo &ST) const override {
@@ -309,31 +500,52 @@ public:
 
   unsigned getRegBitWidth(MCRegister Reg,
                           InstructionGenerationContext &IGC) const override {
-    llvm::outs() << "[DEBUG] getRegBitWidth\n";
-    reportUnimplementedError();
+    const auto &RI = IGC.ProgCtx.getLLVMState().getRegInfo();
+    if (isInRegClass(RI, NVPTX::B1RegClassID, Reg))
+      return 1;
+    if (isInRegClass(RI, NVPTX::B16RegClassID, Reg))
+      return 16;
+    if (isInRegClass(RI, NVPTX::B32RegClassID, Reg))
+      return 32;
+    if (isInRegClass(RI, NVPTX::B64RegClassID, Reg))
+      return 64;
+    if (isInRegClass(RI, NVPTX::B128RegClassID, Reg))
+      return 128;
+    snippy::fatal("Unsupported NVPTX register width");
   }
 
   MCRegister regIndexToMCReg(InstructionGenerationContext &IGC, unsigned RegIdx,
                              RegStorageType Storage) const override {
-    llvm::outs() << "[DEBUG] regIndexToMCReg\n";
-    reportUnimplementedError();
+    switch (Storage) {
+    case RegStorageType::XReg:
+      if (RegIdx < getRDRegs().size())
+        return getRDRegs()[RegIdx];
+      break;
+    case RegStorageType::FReg:
+    case RegStorageType::VReg:
+      break;
+    }
+    snippy::fatal("Unsupported NVPTX register index");
   }
 
   RegStorageType regToStorage(Register Reg) const override {
-    llvm::outs() << "[DEBUG] regToStorage\n";
-    reportUnimplementedError();
+    if (is_contained(getRDRegs(), Reg))
+      return RegStorageType::XReg;
+    snippy::fatal("Unsupported NVPTX register storage kind");
   }
 
   unsigned regToIndex(Register Reg) const override {
-    llvm::outs() << "[DEBUG] regToIndex\n";
-    reportUnimplementedError();
+    for (auto [Index, RDReg] : enumerate(getRDRegs()))
+      if (RDReg == Reg)
+        return Index;
+    snippy::fatal("Unsupported NVPTX register index lookup");
   }
 
   unsigned getNumRegs(RegStorageType Storage,
                       const TargetSubtargetInfo &SubTgt) const override {
-    llvm::outs() << "[DEBUG] getNumRegs\n";
-    return 32;
-    // reportUnimplementedError();
+    if (Storage == RegStorageType::XReg)
+      return getRDRegs().size();
+    return 0;
   }
 
   unsigned

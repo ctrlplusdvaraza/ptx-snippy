@@ -103,8 +103,8 @@ public:
   Function &createFunction(Module &M, StringRef FunctionName,
                            StringRef SectionName,
                            Function::LinkageTypes Linkage,
+                           FunctionType *FT,
                            LLVMContext &ExternalCtx) const {
-    auto *FT = FunctionType::get(Type::getVoidTy(ExternalCtx), false);
     auto *F = Function::Create(FT, Linkage, FunctionName, M);
     // Assign specific output section for this function
     // if not empty. Default output section is ".text".
@@ -112,6 +112,15 @@ public:
       F->setSection(SectionName);
     F->setDoesNotThrow();
     return *F;
+  }
+
+  Function &createFunction(Module &M, StringRef FunctionName,
+                           StringRef SectionName,
+                           Function::LinkageTypes Linkage,
+                           LLVMContext &ExternalCtx) const {
+    auto *FT = FunctionType::get(Type::getVoidTy(ExternalCtx), false);
+    return createFunction(M, FunctionName, SectionName, Linkage, FT,
+                          ExternalCtx);
   }
 
   Function &createFunction(Module &M, StringRef FunctionName,

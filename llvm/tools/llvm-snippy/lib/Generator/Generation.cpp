@@ -1578,10 +1578,13 @@ void finalizeFunction(MachineFunction &MF, planning::FunctionRequest &Request,
 
   // Or to generate nop
   if (NopLastInstr) {
+    State.getSnippyTarget().generateFinalRegDump(InstrGenCtx);
     State.getSnippyTarget().generateNop(InstrGenCtx);
     MBB.back().setPostInstrSymbol(MF, ExitSym);
     return;
   }
+  State.getSnippyTarget().generateFinalRegDump(InstrGenCtx);
+
   for (auto &&FinalReq : Request.getFinalGenReqs(MFStats)) {
     assert((!FinalReq.limit().isNumLimit() || FinalReq.limit().getLimit()) &&
            "FinalReq is empty!");

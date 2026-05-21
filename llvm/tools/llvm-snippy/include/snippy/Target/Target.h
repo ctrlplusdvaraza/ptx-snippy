@@ -50,6 +50,8 @@ namespace llvm {
 class AsmPrinter;
 class MCCodeEmitter;
 class Function;
+class FunctionType;
+class LLVMContext;
 
 namespace sys {
 class DynamicLibrary;
@@ -146,6 +148,11 @@ public:
   setupGeneratedFunction(Function &F, StringRef EntryPointName,
                          StringRef OriginalName,
                          Function::LinkageTypes Linkage) const {}
+
+  virtual FunctionType *
+  getGeneratedFunctionType(LLVMContext &Ctx, StringRef EntryPointName,
+                           StringRef OriginalName,
+                           Function::LinkageTypes Linkage) const;
 
   virtual std::unique_ptr<SimulatorInterface>
   createSimulator(llvm::snippy::DynamicLibrary &ModelLib,
@@ -315,6 +322,11 @@ public:
 
   virtual void generateRegsInit(InstructionGenerationContext &IGC,
                                 const IRegisterState &R) const = 0;
+
+  virtual bool regsInitNeedsDedicatedBlock() const { return true; }
+
+  virtual void
+  generateFinalRegDump(InstructionGenerationContext &IGC) const {}
 
   // Returns the number of available floating point registers in the program.
   virtual unsigned getFPRegsCount(const TargetSubtargetInfo &ST) const = 0;

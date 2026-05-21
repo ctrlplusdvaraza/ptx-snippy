@@ -85,18 +85,27 @@ bool RegsInitInsertion::runOnMachineFunction(MachineFunction &MF) {
   const auto &SnippyTgt = State.getSnippyTarget();
   const auto &SubTgt = MF.getSubtarget();
 
-  // new block for registers initialization
-  auto *BlockRegsInit = createMachineBasicBlock(MF);
-  auto *SuccessorBlockPtr = &MF.front();
-  auto InsertIterPos = MF.begin();
-  BlockRegsInit->addSuccessor(SuccessorBlockPtr);
-  MF.insert(InsertIterPos, BlockRegsInit);
-  SFM.RegsInitBlock = BlockRegsInit;
-
   const auto &RegState =
       SGCtx.getProgramContext().getInitialRegisterState(SubTgt);
-  planning::InstructionGenerationContext IGC{
-      *BlockRegsInit, BlockRegsInit->getFirstTerminator(), SGCtx, SimCtx};
+  MachineBasicBlock *RegsInitBlock = nullptr;
+  MachineBasicBlock::iterator InsertPos;
+
+  if (SnippyTgt.regsInitNeedsDedicatedBlock()) {
+    auto *BlockRegsInit = createMachineBasicBlock(MF);
+    auto *SuccessorBlockPtr = &MF.front();
+    auto InsertIterPos = MF.begin();
+    BlockRegsInit->addSuccessor(SuccessorBlockPtr);
+    MF.insert(InsertIterPos, BlockRegsInit);
+    RegsInitBlock = BlockRegsInit;
+    InsertPos = BlockRegsInit->getFirstTerminator();
+  } else {
+    RegsInitBlock = &MF.front();
+    InsertPos = RegsInitBlock->begin();
+  }
+
+  SFM.RegsInitBlock = RegsInitBlock;
+  planning::InstructionGenerationContext IGC{*RegsInitBlock, InsertPos, SGCtx,
+                                             SimCtx};
 
   SnippyTgt.generateRegsInit(IGC, RegState);
   return true;
