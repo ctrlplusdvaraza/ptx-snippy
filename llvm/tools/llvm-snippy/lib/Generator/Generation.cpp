@@ -1778,6 +1778,15 @@ void generate(planning::FunctionRequest &FunctionGenRequest,
     MBB = findNextBlock(nullptr, NotVisited, nullptr, State, SimCtx);
   }
 
+  const auto &SnippyTgt = State.getSnippyTarget();
+  if (CGS && CGS->isEntryFunction(MF) &&
+      SnippyTgt.needsRuntimeEntryRegInit()) {
+    planning::InstructionGenerationContext InstrGenCtx{
+        MF.front(), MF.front().begin(), GC, SimCtx};
+    InstrGenCtx.append(CGS).append(MAI).append(SFM);
+    SnippyTgt.generateRuntimeEntryRegInit(InstrGenCtx);
+  }
+
   finalizeFunction(MF, FunctionGenRequest, CurrMFGenStats, GC, SimCtx, CGS,
                    MAI);
 }

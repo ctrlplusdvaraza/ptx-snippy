@@ -79,7 +79,7 @@ bool RegsInitInsertion::runOnMachineFunction(MachineFunction &MF) {
   auto &ProgCtx = SGCtx.getProgramContext();
   auto &State = ProgCtx.getLLVMState();
   const auto &SnippyTgt = State.getSnippyTarget();
-  if (!InitRegs && !SnippyTgt.needsRuntimeEntryRegInit()) {
+  if (!InitRegs) {
     MF.getRegInfo().invalidateLiveness();
     return false;
   }
@@ -110,8 +110,6 @@ bool RegsInitInsertion::runOnMachineFunction(MachineFunction &MF) {
         SGCtx.getProgramContext().getInitialRegisterState(SubTgt);
     SnippyTgt.generateRegsInit(IGC, RegState);
   }
-  if (SnippyTgt.needsRuntimeEntryRegInit())
-    SnippyTgt.generateRuntimeEntryRegInit(IGC);
   return true;
 }
 
