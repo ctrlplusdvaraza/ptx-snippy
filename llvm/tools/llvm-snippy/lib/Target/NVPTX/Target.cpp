@@ -52,9 +52,19 @@ constexpr unsigned NotAtomic = 0;
 constexpr unsigned ThreadScope = 0;
 constexpr unsigned GlobalAS = 1;
 constexpr unsigned UntypedLdSt = 3;
-constexpr unsigned PerThreadRDBytes = 5 * 8;
+constexpr unsigned PerThreadRDBytes = 3 * 8;
 
-static ArrayRef<Register> getRDRegs() {
+static ArrayRef<Register> getDataRDRegs() {
+  static const Register DataRDRegs[] = {NVPTX::RL0, NVPTX::RL1, NVPTX::RL2};
+  return DataRDRegs;
+}
+
+static ArrayRef<Register> getSupportRDRegs() {
+  static const Register SupportRDRegs[] = {NVPTX::RL3, NVPTX::RL4};
+  return SupportRDRegs;
+}
+
+static ArrayRef<Register> getAllRDRegs() {
   static const Register RDRegs[] = {NVPTX::RL0, NVPTX::RL1, NVPTX::RL2,
                                     NVPTX::RL3, NVPTX::RL4};
   return RDRegs;
@@ -75,8 +85,8 @@ class SnippyNVPTXTarget : public SnippyTarget {
     return MF.createExternalSymbolName(Name);
   }
 
-  Register getPointerScratchReg() const { return NVPTX::VRFrame64; }
-  Register getOffsetScratchReg() const { return NVPTX::VRFrameLocal64; }
+  Register getPointerScratchReg() const { return NVPTX::RL3; }
+  Register getOffsetScratchReg() const { return NVPTX::RL4; }
 
   void readSpecialReg(InstructionGenerationContext &IGC, unsigned Opcode,
                       Register DstReg) const {
@@ -350,9 +360,15 @@ public:
 
   void generateRegsInit(InstructionGenerationContext &IGC,
                         const IRegisterState &R) const override {
+  }
+
+  bool needsRuntimeEntryRegInit() const override { return true; }
+
+  void
+  generateRuntimeEntryRegInit(InstructionGenerationContext &IGC) const override {
     computeThreadBase(IGC, /* in_ptr */ 0);
     auto PtrReg = getPointerScratchReg();
-    for (auto [Index, Reg] : enumerate(getRDRegs()))
+    for (auto [Index, Reg] : enumerate(getDataRDRegs()))
       emitLoadI64(IGC, Reg, PtrReg, Index * 8);
   }
 
@@ -361,7 +377,7 @@ public:
   void generateFinalRegDump(InstructionGenerationContext &IGC) const override {
     computeThreadBase(IGC, /* out_ptr */ 1);
     auto PtrReg = getPointerScratchReg();
-    for (auto [Index, Reg] : enumerate(getRDRegs()))
+    for (auto [Index, Reg] : enumerate(getDataRDRegs()))
       emitStoreI64(IGC, Reg, PtrReg, Index * 8);
   }
 
@@ -518,8 +534,8 @@ public:
                              RegStorageType Storage) const override {
     switch (Storage) {
     case RegStorageType::XReg:
-      if (RegIdx < getRDRegs().size())
-        return getRDRegs()[RegIdx];
+      if (RegIdx < getDataRDRegs().size())
+        return getDataRDRegs()[RegIdx];
       break;
     case RegStorageType::FReg:
     case RegStorageType::VReg:
@@ -529,13 +545,13 @@ public:
   }
 
   RegStorageType regToStorage(Register Reg) const override {
-    if (is_contained(getRDRegs(), Reg))
+    if (is_contained(getAllRDRegs(), Reg))
       return RegStorageType::XReg;
     snippy::fatal("Unsupported NVPTX register storage kind");
   }
 
   unsigned regToIndex(Register Reg) const override {
-    for (auto [Index, RDReg] : enumerate(getRDRegs()))
+    for (auto [Index, RDReg] : enumerate(getAllRDRegs()))
       if (RDReg == Reg)
         return Index;
     snippy::fatal("Unsupported NVPTX register index lookup");
@@ -544,7 +560,7 @@ public:
   unsigned getNumRegs(RegStorageType Storage,
                       const TargetSubtargetInfo &SubTgt) const override {
     if (Storage == RegStorageType::XReg)
-      return getRDRegs().size();
+      return getDataRDRegs().size();
     return 0;
   }
 
@@ -1008,7 +1024,7 @@ public:
     llvm::outs() << "[DEBUG] excludeRegsForOperand\n";
     std::vector<Register> Excluded;
     for (auto Reg : RC)
-      if (isSystemReg(Reg))
+      if (isSystemReg(Reg) || is_contained(getSupportRDRegs(), Reg))
         Excluded.push_back(Reg);
     return Excluded;
   }

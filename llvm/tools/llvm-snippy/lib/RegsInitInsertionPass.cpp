@@ -76,17 +76,15 @@ bool RegsInitInsertion::runOnMachineFunction(MachineFunction &MF) {
       getAnalysis<SimulatorContextWrapper>().get<OwningSimulatorContext>();
   if (!FG.isEntryFunction(MF))
     return false;
-  if (!InitRegs) {
-    MF.getRegInfo().invalidateLiveness();
-    return false;
-  }
   auto &ProgCtx = SGCtx.getProgramContext();
   auto &State = ProgCtx.getLLVMState();
   const auto &SnippyTgt = State.getSnippyTarget();
-  const auto &SubTgt = MF.getSubtarget();
+  if (!InitRegs && !SnippyTgt.needsRuntimeEntryRegInit()) {
+    MF.getRegInfo().invalidateLiveness();
+    return false;
+  }
+  auto &SubTgt = MF.getSubtarget();
 
-  const auto &RegState =
-      SGCtx.getProgramContext().getInitialRegisterState(SubTgt);
   MachineBasicBlock *RegsInitBlock = nullptr;
   MachineBasicBlock::iterator InsertPos;
 
@@ -107,7 +105,13 @@ bool RegsInitInsertion::runOnMachineFunction(MachineFunction &MF) {
   planning::InstructionGenerationContext IGC{*RegsInitBlock, InsertPos, SGCtx,
                                              SimCtx};
 
-  SnippyTgt.generateRegsInit(IGC, RegState);
+  if (InitRegs) {
+    const auto &RegState =
+        SGCtx.getProgramContext().getInitialRegisterState(SubTgt);
+    SnippyTgt.generateRegsInit(IGC, RegState);
+  }
+  if (SnippyTgt.needsRuntimeEntryRegInit())
+    SnippyTgt.generateRuntimeEntryRegInit(IGC);
   return true;
 }
 

@@ -323,6 +323,11 @@ public:
   virtual void generateRegsInit(InstructionGenerationContext &IGC,
                                 const IRegisterState &R) const = 0;
 
+  virtual bool needsRuntimeEntryRegInit() const { return false; }
+
+  virtual void
+  generateRuntimeEntryRegInit(InstructionGenerationContext &IGC) const {}
+
   virtual bool regsInitNeedsDedicatedBlock() const { return true; }
 
   virtual void
