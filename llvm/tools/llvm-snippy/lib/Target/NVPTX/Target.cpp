@@ -35,6 +35,19 @@ namespace snippy {
 
 namespace {
 
+static bool isSystemReg(Register Reg) {
+  switch (Reg.id()) {
+  case NVPTX::VRFrame32:
+  case NVPTX::VRFrame64:
+  case NVPTX::VRFrameLocal32:
+  case NVPTX::VRFrameLocal64:
+  case NVPTX::VRDepot:
+    return true;
+  default:
+    return Reg.id() >= NVPTX::ENVREG0 && Reg.id() <= NVPTX::ENVREG31;
+  }
+}
+
 class SnippyNVPTXTarget : public SnippyTarget {
 public:
   SnippyNVPTXTarget() = default;
@@ -779,8 +792,10 @@ public:
                                               unsigned Operand) const override {
     llvm::outs() << "[DEBUG] excludeRegsForOperand\n";
     std::vector<Register> Excluded;
+    for (auto Reg : RC)
+      if (isSystemReg(Reg))
+        Excluded.push_back(Reg);
     return Excluded;
-    // reportUnimplementedError();
   }
 
   std::vector<Register> includeRegs(unsigned Opcode,
@@ -794,11 +809,7 @@ public:
     // B32_and_SpecialRegsRegClassID = 4,
     // B64RegClassID = 5,
     // B128RegClassID = 6,
-    std::vector<Register> include;
-    for (auto Reg : RC) {
-        include.push_back(Reg); 
-    }
-    return include;
+    return {};
 
     // reportUnimplementedError();
   }
