@@ -333,6 +333,8 @@ public:
   virtual void
   generateFinalRegDump(InstructionGenerationContext &IGC) const {}
 
+  virtual bool forceReturnAsFinalInstr() const { return false; }
+
   // Returns the number of available floating point registers in the program.
   virtual unsigned getFPRegsCount(const TargetSubtargetInfo &ST) const = 0;
 

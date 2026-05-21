@@ -51,6 +51,8 @@ static bool isSystemReg(Register Reg) {
 constexpr unsigned NotAtomic = 0;
 constexpr unsigned ThreadScope = 0;
 constexpr unsigned GlobalAS = 1;
+constexpr unsigned ParamAS = 101;
+constexpr unsigned UnsignedLdSt = 0;
 constexpr unsigned UntypedLdSt = 3;
 constexpr unsigned PerThreadRDBytes = 3 * 8;
 
@@ -76,8 +78,15 @@ static bool isInRegClass(const MCRegisterInfo &RI, unsigned RCID,
 }
 
 class SnippyNVPTXTarget : public SnippyTarget {
-  static std::string getKernelParamName(const Function &F, unsigned ParamIdx) {
-    return (Twine(F.getName()) + "_param_" + Twine(ParamIdx)).str();
+  static StringRef getKernelParamName(unsigned ParamIdx) {
+    switch (ParamIdx) {
+    case 0:
+      return "in_ptr";
+    case 1:
+      return "out_ptr";
+    default:
+      llvm_unreachable("Unexpected NVPTX snippy kernel parameter");
+    }
   }
 
   static const char *createExternalSymbolName(MachineFunction &MF,
@@ -99,10 +108,16 @@ class SnippyNVPTXTarget : public SnippyTarget {
                        Register DstReg) const {
     auto &State = IGC.ProgCtx.getLLVMState();
     auto &MF = *IGC.MBB.getParent();
-    auto ParamName = getKernelParamName(MF.getFunction(), ParamIdx);
+    auto ParamName = getKernelParamName(ParamIdx);
     getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, State.getCtx(),
-                          State.getInstrInfo().get(NVPTX::MOV64_PARAM), DstReg)
-        .addExternalSymbol(createExternalSymbolName(MF, ParamName));
+                          State.getInstrInfo().get(NVPTX::LD_i64), DstReg)
+        .addImm(NotAtomic)
+        .addImm(ThreadScope)
+        .addImm(ParamAS)
+        .addImm(UnsignedLdSt)
+        .addImm(64)
+        .addExternalSymbol(createExternalSymbolName(MF, ParamName))
+        .addImm(0);
   }
 
   void emitLoadI64(InstructionGenerationContext &IGC, Register DstReg,
@@ -264,8 +279,12 @@ public:
                               StringRef OriginalName,
                               Function::LinkageTypes Linkage) const override {
     if (OriginalName == EntryPointName &&
-        Linkage == Function::ExternalLinkage)
+        Linkage == Function::ExternalLinkage) {
       F.setCallingConv(CallingConv::PTX_Kernel);
+      assert(F.arg_size() == 2 && "NVPTX snippy kernel expects two pointers");
+      F.getArg(0)->setName(getKernelParamName(0));
+      F.getArg(1)->setName(getKernelParamName(1));
+    }
   }
 
   FunctionType *
@@ -605,9 +624,12 @@ public:
 
   MachineInstr *
   generateReturn(InstructionGenerationContext &IGC) const override {
-    llvm::outs() << "[DEBUG] generateReturn\n";
-    reportUnimplementedError();
+    auto &State = IGC.ProgCtx.getLLVMState();
+    return getSupportInstBuilder(*this, IGC.MBB, IGC.Ins, State.getCtx(),
+                                 State.getInstrInfo().get(NVPTX::Return));
   }
+
+  bool forceReturnAsFinalInstr() const override { return true; }
 
   MachineInstr *generateNop(InstructionGenerationContext &IGC) const override {
     llvm::outs() << "[DEBUG] generateNop\n";

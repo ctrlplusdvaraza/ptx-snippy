@@ -4689,6 +4689,13 @@ Align NVPTXTargetLowering::getFunctionByValParamAlign(
 // parameter (unsized array) used for passing variable arguments.
 std::string NVPTXTargetLowering::getParamName(const Function *F,
                                               int Idx) const {
+  if (Idx >= 0 && static_cast<unsigned>(Idx) < F->arg_size() &&
+      isKernelFunction(*F)) {
+    const Argument *Arg = F->getArg(static_cast<unsigned>(Idx));
+    if (Arg->hasName())
+      return Arg->getName().str();
+  }
+
   std::string ParamName;
   raw_string_ostream ParamStr(ParamName);
 

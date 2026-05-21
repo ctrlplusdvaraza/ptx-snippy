@@ -1568,8 +1568,11 @@ void finalizeFunction(MachineFunction &MF, planning::FunctionRequest &Request,
   auto *ExitSym =
       MF.getContext().getOrCreateSymbol(Linker::getExitSymbolName());
 
-  // User may ask for last instruction to be return.
-  if (PassCfg.InstrsGenerationConfig.useRetAsLastInstr()) {
+  // User may ask for last instruction to be return. Targets without a
+  // meaningful trap instruction may also force the same finalization path.
+  if (PassCfg.InstrsGenerationConfig.useRetAsLastInstr() ||
+      State.getSnippyTarget().forceReturnAsFinalInstr()) {
+    State.getSnippyTarget().generateFinalRegDump(InstrGenCtx);
     State.getSnippyTarget()
         .generateReturn(InstrGenCtx)
         ->setPreInstrSymbol(MF, ExitSym);
